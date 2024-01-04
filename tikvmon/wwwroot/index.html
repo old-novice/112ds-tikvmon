@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Index</title>
+        <meta charset="utf-8" />
+        <script src="lib/vue/vue.global.min.js"></script>
+        <style>
+            html,body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            }
+            table {
+                border-collapse: collapse;
+            }
+            td {
+                border: 1px solid #ccc;
+                padding: 5px;
+                text-align: center;
+            }
+            tfoot td,thead td {
+                background-color: #eee;
+            }
+            .container
+            {
+                display: flex;
+                flex-wrap: wrap;
+                margin-top: 32px;
+            }
+            .store {
+                position: relative;
+                border: 1px solid #888;
+                border-width: 0 1px 0 1px;
+                margin: 5px;
+                padding: 5px;
+                width: 250px;
+                min-height: 200px;
+            }
+            .store .top, .store .bottom {
+                position: absolute;
+                left: 0;
+                right: 0;
+                border: 1px solid gray;
+                border-radius: 50%;
+                height: 40px;
+            }
+            .store .top {
+                top: -20px;
+            }
+            .store .bottom {
+                /* border-top: none; */
+                border-top-color: transparent;
+                bottom: -20px;
+            }
+            .store .title {
+                margin: 20px;
+                text-align: center;
+            }
+            .regions {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            .region {
+                border: 1px solid #888;
+                font-size: 12pt;
+                width: 25px;
+                text-align: center;
+                padding: 3px;
+                margin: 3px;
+                cursor: pointer;
+            }
+            .region.leader {
+                background-color: lightcyan;
+            }
+            .active {
+                border-color: red;
+                border-width: 2px;
+                font-weight: bolder;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="app">
+            <h1>TiKV Store</h1>
+            <table>
+                <thead>
+                    <tr>
+                        <td rowspan="2">Id</td>
+                        <td rowspan="2">Kind</td>
+                        <td rowspan="2">Port</td>
+                        <td colspan="4">Leader</td>
+                        <td colspan="4">Region</td>
+                        <td rowspan="2">UpTime</td>
+                    </tr>
+                    <tr>
+                        <td>Count</td>
+                        <td>Weight</td>
+                        <td>Score</td>
+                        <td>Size</td>
+                        <td>Count</td>
+                        <td>Weight</td>
+                        <td>Score</td>
+                        <td>Size</td>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="node in data">
+                        <td>{{ node.id }}</td>
+                        <td>{{ node.kind }}</td>
+                        <td>{{ node.port }}</td>
+                        <td>{{ node.leaderCount }}</td>
+                        <td>{{ node.leaderWeight }}</td>
+                        <td>{{ node.leaderScore }}</td>
+                        <td>{{ node.leaderSize }}</td>
+                        <td>{{ node.regionCount }}</td>
+                        <td>{{ node.regionWeight }}</td>
+                        <td>{{ node.regionScore }}</td>
+                        <td>{{ node.regionSize }}</td>
+                        <td>{{ node.upTime }}</td>
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td></td>
+                        <td>Totoal</td>
+                        <td></td>
+                        <td>{{leaderCount}}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>{{regionCount}}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <div class="container">
+                <div v-for="store in dist" class="store" @click="activeRegionId = ''">
+                    <div class="top"></div>
+                    <div class="title">TiKV Store {{store.storeId}}</div>
+                    <div class="regions">
+                        <div v-for="peer in store.peers" class="region" 
+                            :class="{'leader':peer.isLeader == 1, 'active':peer.regionId == activeRegionId}" 
+                            :style="{'color':getColor(peer.regionId)}"
+                            @click.stop="activeRegionId = peer.regionId"
+                        >
+                            {{peer.regionId}}
+                        </div>
+                    </div>
+                    <div class="bottom"></div>
+                </div>
+            </div>
+        </div>
+        <script>
+            let colors = [];
+            const options = [ '00', '22', '44', '66' ];
+            for (let r = 0; r < 4; r++) {
+                for (let g = 0; g < 4; g++) {
+                    for (let b = 0; b < 4; b++) {
+                        colors.push(`#${options[r]}${options[g]}${options[b]}`);
+                    }
+                }
+            }
+            // shaffle the color order
+            colors.sort(() => Math.random() - 0.5);
+            const app = Vue.createApp({
+                data() {
+                    return {
+                        data: [],
+                        dist: [{
+                            storeId: 1,
+                            peers: [
+                                { regionId: 16 }
+                            ]
+                        }],
+                        activeRegionId: ''
+                    }
+                },
+                computed: {
+                    leaderCount() {
+                        return this.data.reduce((a, b) => a + b.leaderCount, 0);
+                    },
+                    regionCount() {
+                        return this.data.reduce((a, b) => a + b.regionCount, 0);
+                    }
+                },
+                methods: {
+                    getColor(idx) {
+                        return colors[idx % colors.length];
+                    }
+                }
+            });
+            const vm = app.mount('#app');
+            let errCount = 0;
+            let timer = setInterval(() => {
+                fetch('/mon').then(res => res.json()).then(res => {
+                    vm.data = res.stores;
+                    vm.dist = res.peers;
+                }).catch(err => {
+                    errCount++;
+                    if (errCount > 3) {
+                        clearInterval(timer);
+                        document.title = "監控連線中斷";
+                        document.body.style.backgroundColor = '#eee';
+                    }
+                });
+            }, 500);
+        </script>
+    </body>
+</html>
